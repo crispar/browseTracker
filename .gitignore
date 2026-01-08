@@ -21,7 +21,6 @@ logs/
 # Build directories
 build/
 dist/
-*.spec
 
 # IDE
 .vscode/
