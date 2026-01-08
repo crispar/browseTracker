@@ -9,13 +9,6 @@ on:
       - 'build.spec'       # Build configuration
       - 'requirements*.txt' # Dependencies
       - '.github/workflows/build.yml'  # Workflow itself
-    paths-ignore:
-      - '**.md'            # Markdown files
-      - 'LICENSE'          # License file
-      - '.gitignore'       # Git ignore file
-      - 'docs/**'          # Documentation
-      - '*.txt'            # Text files (except requirements)
-      - '!requirements*.txt' # Except requirements files
   pull_request:
     branches: [ master, main ]
     paths:
@@ -24,13 +17,6 @@ on:
       - 'build.spec'
       - 'requirements*.txt'
       - '.github/workflows/build.yml'
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - 'docs/**'
-      - '*.txt'
-      - '!requirements*.txt'
   workflow_dispatch:
 
 jobs:
