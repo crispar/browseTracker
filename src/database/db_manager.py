@@ -69,7 +69,8 @@ class DatabaseManager:
 
     def upsert_link(self, url: str, title: Optional[str] = None,
                     browser: Optional[str] = None,
-                    browser_profile: Optional[str] = None) -> Link:
+                    browser_profile: Optional[str] = None,
+                    visited_at: Optional[datetime] = None) -> Link:
         """Insert or update a link, incrementing access count.
 
         Args:
@@ -77,6 +78,7 @@ class DatabaseManager:
             title: Optional page title
             browser: Browser name (chrome/edge/etc)
             browser_profile: Browser profile name
+            visited_at: Actual visit time from browser history
 
         Returns:
             The created or updated Link object
@@ -88,25 +90,38 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM links WHERE url = ?", (url,))
             existing = cursor.fetchone()
 
+            # Use provided visited_at time, or current time as fallback
+            visit_time = visited_at.isoformat() if visited_at else datetime.now().isoformat()
             now = datetime.now().isoformat()
 
             if existing:
-                # Update existing link
-                cursor.execute("""
-                    UPDATE links
-                    SET title = COALESCE(?, title),
-                        last_accessed_at = ?,
-                        access_count = access_count + 1,
-                        updated_at = ?
-                    WHERE url = ?
-                """, (title, now, now, url))
+                # Update existing link - only update last_accessed_at if new visit is more recent
+                existing_last_accessed = existing['last_accessed_at']
+                if not existing_last_accessed or visit_time > existing_last_accessed:
+                    cursor.execute("""
+                        UPDATE links
+                        SET title = COALESCE(?, title),
+                            last_accessed_at = ?,
+                            access_count = access_count + 1,
+                            updated_at = ?
+                        WHERE url = ?
+                    """, (title, visit_time, now, url))
+                else:
+                    # Just update access count if this is an older visit
+                    cursor.execute("""
+                        UPDATE links
+                        SET title = COALESCE(?, title),
+                            access_count = access_count + 1,
+                            updated_at = ?
+                        WHERE url = ?
+                    """, (title, now, url))
                 link_id = existing['id']
             else:
                 # Insert new link
                 cursor.execute("""
                     INSERT INTO links (url, title, created_at, updated_at, last_accessed_at)
                     VALUES (?, ?, ?, ?, ?)
-                """, (url, title or url, now, now, now))
+                """, (url, title or url, now, now, visit_time))
                 link_id = cursor.lastrowid
 
             # Record visit if browser info provided
@@ -114,7 +129,7 @@ class DatabaseManager:
                 cursor.execute("""
                     INSERT INTO visits (link_id, browser, browser_profile, visited_at)
                     VALUES (?, ?, ?, ?)
-                """, (link_id, browser, browser_profile, now))
+                """, (link_id, browser, browser_profile, visit_time))
 
             conn.commit()
 

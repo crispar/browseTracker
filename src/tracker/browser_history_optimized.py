@@ -345,7 +345,8 @@ class OptimizedHistoryTracker:
                     url=item['url'],
                     title=item['title'],
                     browser=browser,
-                    browser_profile=browser_profile
+                    browser_profile=browser_profile,
+                    visited_at=item.get('visited_at')  # Pass the actual visit time
                 )
 
                 if link.access_count == 1:

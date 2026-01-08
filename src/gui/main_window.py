@@ -330,8 +330,8 @@ class MainWindow:
         try:
             # Use optimized method if available
             if hasattr(self.tracker, 'scan_and_update_batch'):
-                # Optimized batch scan with limits for performance
-                stats = self.tracker.scan_and_update_batch(since_hours=24, max_items=200)
+                # Optimized batch scan with more items
+                stats = self.tracker.scan_and_update_batch(since_hours=24, max_items=1000)
             else:
                 # Fallback to regular scan
                 stats = self.tracker.scan_and_update(since_hours=24)  # Last 24 hours for performance
