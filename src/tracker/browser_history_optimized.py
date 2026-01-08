@@ -289,8 +289,9 @@ class OptimizedHistoryTracker:
                     continue
 
                 try:
-                    # Use last scan time if available, otherwise use since parameter
-                    scan_since = source.last_scanned_at or since
+                    # Always use the since parameter to avoid missing URLs
+                    # that were visited before the last scan time
+                    scan_since = since
 
                     # Scan with limit for performance
                     history = self.scanner.scan_browser_profile(
