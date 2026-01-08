@@ -161,15 +161,13 @@ class TrashDialog:
         ).pack(side=tk.RIGHT)
 
     def _load_deleted_links(self):
-        """Load all deleted links from database."""
+        """Load only deleted links from database efficiently."""
         # Clear existing items
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        # Get deleted links
-        deleted_links = self.db_manager.get_links(include_deleted=True)
-        # Filter only deleted ones
-        deleted_links = [link for link in deleted_links if link.is_deleted]
+        # Get ONLY deleted links using optimized query
+        deleted_links = self.db_manager.get_links(include_deleted='only')
 
         # Update info label
         self.info_label.config(text=f"Found {len(deleted_links)} deleted links")
@@ -199,24 +197,18 @@ class TrashDialog:
         self.selected_links = []
 
     def _search(self):
-        """Search for deleted links."""
+        """Search for deleted links efficiently."""
         query = self.search_var.get().strip()
 
         # Clear existing items
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        # Get deleted links with search
-        if query:
-            deleted_links = self.db_manager.get_links(
-                search_query=query,
-                include_deleted=True
-            )
-        else:
-            deleted_links = self.db_manager.get_links(include_deleted=True)
-
-        # Filter only deleted ones
-        deleted_links = [link for link in deleted_links if link.is_deleted]
+        # Get ONLY deleted links with search (optimized)
+        deleted_links = self.db_manager.get_links(
+            search_query=query if query else None,
+            include_deleted='only'
+        )
 
         # Update info label
         if query:
@@ -259,7 +251,7 @@ class TrashDialog:
         return link_ids
 
     def _restore_selected(self):
-        """Restore selected links."""
+        """Restore selected links using batch operation."""
         link_ids = self._get_selected_link_ids()
 
         if not link_ids:
@@ -272,11 +264,8 @@ class TrashDialog:
         if not messagebox.askyesno("Confirm Restore", msg):
             return
 
-        # Restore each link
-        restored_count = 0
-        for link_id in link_ids:
-            if self.db_manager.restore_link(link_id):
-                restored_count += 1
+        # Batch restore for much better performance
+        restored_count = self.db_manager.restore_links_batch(link_ids)
 
         # Show result
         if restored_count > 0:
@@ -295,7 +284,7 @@ class TrashDialog:
             messagebox.showerror("Error", "Failed to restore links")
 
     def _permanent_delete_selected(self):
-        """Permanently delete selected links."""
+        """Permanently delete selected links using batch operation."""
         link_ids = self._get_selected_link_ids()
 
         if not link_ids:
@@ -315,11 +304,8 @@ class TrashDialog:
         if not messagebox.askyesno("Final Confirmation", msg2, icon='warning'):
             return
 
-        # Permanently delete each link
-        deleted_count = 0
-        for link_id in link_ids:
-            if self.db_manager.delete_link(link_id, permanent=True):
-                deleted_count += 1
+        # Batch permanent delete for better performance
+        deleted_count = self.db_manager.delete_links_batch(link_ids, permanent=True)
 
         # Show result
         if deleted_count > 0:

@@ -89,6 +89,9 @@ CREATE INDEX IF NOT EXISTS idx_links_normalized_url ON links(normalized_url);
 CREATE INDEX IF NOT EXISTS idx_links_last_accessed ON links(last_accessed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_links_access_count ON links(access_count DESC);
 CREATE INDEX IF NOT EXISTS idx_links_title ON links(title);
+CREATE INDEX IF NOT EXISTS idx_links_is_deleted ON links(is_deleted);
+CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_links_composite_deleted ON links(is_deleted, deleted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_link_id ON visits(link_id);
 CREATE INDEX IF NOT EXISTS idx_visits_visited_at ON visits(visited_at DESC);
 """

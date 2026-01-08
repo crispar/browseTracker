@@ -446,7 +446,7 @@ class MainWindow:
         self.refresh_links()
 
     def delete_selected(self):
-        """Delete selected links."""
+        """Delete selected links using batch operation for performance."""
         selected_links = self.link_list.get_selected_links()
         if not selected_links:
             return
@@ -458,11 +458,11 @@ class MainWindow:
         if not messagebox.askyesno("Confirm Delete", msg):
             return
 
-        # Delete links (soft delete by default)
-        deleted = 0
-        for link in selected_links:
-            if self.db_manager.delete_link(link.id):
-                deleted += 1
+        # Extract link IDs for batch operation
+        link_ids = [link.id for link in selected_links]
+
+        # Batch delete for much better performance
+        deleted = self.db_manager.delete_links_batch(link_ids, permanent=False)
 
         self.refresh_links()
         self.set_status(f"Moved {deleted} link{'s' if deleted != 1 else ''} to Recycle Bin")

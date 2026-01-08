@@ -61,6 +61,12 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE links ADD COLUMN is_deleted BOOLEAN DEFAULT 0")
                 cursor.execute("ALTER TABLE links ADD COLUMN deleted_at TIMESTAMP")
                 logger.info("Added is_deleted column to existing database")
+
+            # Create missing indexes for performance
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_links_is_deleted ON links(is_deleted)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_links_composite_deleted ON links(is_deleted, deleted_at DESC)")
+
             conn.commit()
             logger.info(f"Database initialized at {self.db_path}")
 
@@ -231,9 +237,11 @@ class DatabaseManager:
                 )
                 params.append(days_back)
 
-            # Filter out deleted links unless specifically requested
+            # Filter deleted links - optimized for index usage
             if not include_deleted:
                 where_clauses.append("(l.is_deleted = 0 OR l.is_deleted IS NULL)")
+            elif include_deleted == 'only':  # Special case for trash view
+                where_clauses.append("l.is_deleted = 1")
 
             # Build WHERE clause
             if where_clauses:
@@ -295,6 +303,41 @@ class DatabaseManager:
             conn.commit()
             return cursor.rowcount > 0
 
+    def delete_links_batch(self, link_ids: List[int], permanent: bool = False) -> int:
+        """Batch delete multiple links efficiently in a single transaction.
+
+        Args:
+            link_ids: List of link IDs to delete
+            permanent: If True, permanently delete. If False, soft delete.
+
+        Returns:
+            Number of links successfully deleted
+        """
+        if not link_ids:
+            return 0
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if permanent:
+                # Permanent deletion
+                placeholders = ','.join('?' * len(link_ids))
+                cursor.execute(f"DELETE FROM links WHERE id IN ({placeholders})", link_ids)
+            else:
+                # Soft delete - batch update
+                now = datetime.now().isoformat()
+                placeholders = ','.join('?' * len(link_ids))
+                cursor.execute(f"""
+                    UPDATE links
+                    SET is_deleted = 1,
+                        deleted_at = ?,
+                        updated_at = ?
+                    WHERE id IN ({placeholders}) AND (is_deleted = 0 OR is_deleted IS NULL)
+                """, [now, now] + link_ids)
+
+            conn.commit()
+            return cursor.rowcount
+
     def delete_link(self, link_id: int, permanent: bool = False) -> bool:
         """Soft delete a link (or permanently delete if specified).
 
@@ -323,6 +366,35 @@ class DatabaseManager:
 
             conn.commit()
             return cursor.rowcount > 0
+
+    def restore_links_batch(self, link_ids: List[int]) -> int:
+        """Batch restore multiple soft-deleted links efficiently.
+
+        Args:
+            link_ids: List of link IDs to restore
+
+        Returns:
+            Number of links successfully restored
+        """
+        if not link_ids:
+            return 0
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(link_ids))
+            cursor.execute(f"""
+                UPDATE links
+                SET is_deleted = 0,
+                    deleted_at = NULL,
+                    updated_at = ?
+                WHERE id IN ({placeholders}) AND is_deleted = 1
+            """, [datetime.now().isoformat()] + link_ids)
+            conn.commit()
+
+            restored_count = cursor.rowcount
+            if restored_count > 0:
+                logger.info(f"Restored {restored_count} links in batch")
+            return restored_count
 
     def restore_link(self, link_id: int) -> bool:
         """Restore a soft-deleted link.
