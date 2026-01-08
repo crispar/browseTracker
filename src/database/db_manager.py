@@ -51,21 +51,111 @@ class DatabaseManager:
     def _init_database(self):
         """Create database schema if it doesn't exist."""
         with self.get_connection() as conn:
-            conn.executescript(SCHEMA_SQL)
-            # Add is_deleted column to existing databases (migration)
             cursor = conn.cursor()
-            # Check if is_deleted column exists
-            cursor.execute("PRAGMA table_info(links)")
-            columns = [col[1] for col in cursor.fetchall()]
-            if 'is_deleted' not in columns:
-                cursor.execute("ALTER TABLE links ADD COLUMN is_deleted BOOLEAN DEFAULT 0")
-                cursor.execute("ALTER TABLE links ADD COLUMN deleted_at TIMESTAMP")
-                logger.info("Added is_deleted column to existing database")
 
-            # Create missing indexes for performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_links_is_deleted ON links(is_deleted)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at DESC)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_links_composite_deleted ON links(is_deleted, deleted_at DESC)")
+            # First, check if links table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='links'")
+            table_exists = cursor.fetchone() is not None
+
+            if table_exists:
+                # Table exists, perform comprehensive migration
+                cursor.execute("PRAGMA table_info(links)")
+                columns = [col[1] for col in cursor.fetchall()]
+                column_set = set(columns)
+
+                # List of columns that might be missing in old databases
+                migrations = [
+                    ('normalized_url', "ALTER TABLE links ADD COLUMN normalized_url TEXT"),
+                    ('favicon_url', "ALTER TABLE links ADD COLUMN favicon_url TEXT"),
+                    ('is_deleted', "ALTER TABLE links ADD COLUMN is_deleted BOOLEAN DEFAULT 0"),
+                    ('deleted_at', "ALTER TABLE links ADD COLUMN deleted_at TIMESTAMP"),
+                ]
+
+                # Add missing columns
+                for col_name, sql in migrations:
+                    if col_name not in column_set:
+                        logger.info(f"Migrating database: Adding {col_name} column")
+                        try:
+                            cursor.execute(sql)
+                            conn.commit()
+                        except sqlite3.OperationalError as e:
+                            logger.warning(f"Could not add column {col_name}: {e}")
+
+                # Create other tables if they don't exist
+                # (we can't use executescript here due to potential column mismatches)
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    color TEXT DEFAULT '#808080',
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """)
+
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS link_categories (
+                    link_id INTEGER NOT NULL,
+                    category_id INTEGER NOT NULL,
+                    PRIMARY KEY (link_id, category_id),
+                    FOREIGN KEY (link_id) REFERENCES links(id) ON DELETE CASCADE,
+                    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+                )
+                """)
+
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """)
+
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS link_tags (
+                    link_id INTEGER NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    PRIMARY KEY (link_id, tag_id),
+                    FOREIGN KEY (link_id) REFERENCES links(id) ON DELETE CASCADE,
+                    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                )
+                """)
+
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS visits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    link_id INTEGER NOT NULL,
+                    browser TEXT,
+                    browser_profile TEXT,
+                    visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (link_id) REFERENCES links(id) ON DELETE CASCADE
+                )
+                """)
+
+                logger.info("Database migration completed")
+            else:
+                # No existing table, create everything fresh
+                conn.executescript(SCHEMA_SQL)
+
+            # Create indexes for performance (these are idempotent)
+            indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_links_url ON links(url)",
+                "CREATE INDEX IF NOT EXISTS idx_links_normalized_url ON links(normalized_url)",
+                "CREATE INDEX IF NOT EXISTS idx_links_last_accessed ON links(last_accessed_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_links_access_count ON links(access_count DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_links_title ON links(title)",
+                "CREATE INDEX IF NOT EXISTS idx_links_is_deleted ON links(is_deleted)",
+                "CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_links_composite_deleted ON links(is_deleted, deleted_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_visits_link_id ON visits(link_id)",
+                "CREATE INDEX IF NOT EXISTS idx_visits_visited_at ON visits(visited_at DESC)",
+            ]
+
+            for idx_sql in indexes:
+                try:
+                    cursor.execute(idx_sql)
+                except sqlite3.OperationalError as e:
+                    logger.warning(f"Could not create index: {e}")
 
             conn.commit()
             logger.info(f"Database initialized at {self.db_path}")
@@ -79,6 +169,18 @@ class DatabaseManager:
             yield conn
         finally:
             conn.close()
+
+    def _ensure_columns_exist(self, conn):
+        """Ensure is_deleted and deleted_at columns exist (emergency migration)."""
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT is_deleted FROM links LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            logger.warning("Emergency migration: Adding is_deleted column")
+            cursor.execute("ALTER TABLE links ADD COLUMN is_deleted BOOLEAN DEFAULT 0")
+            cursor.execute("ALTER TABLE links ADD COLUMN deleted_at TIMESTAMP")
+            conn.commit()
 
     # ============ Link Operations ============
 
@@ -206,6 +308,9 @@ class DatabaseManager:
             List of Link objects
         """
         with self.get_connection() as conn:
+            # Ensure columns exist before running queries
+            self._ensure_columns_exist(conn)
+
             query = "SELECT DISTINCT l.* FROM links l"
             where_clauses = []
             params = []
