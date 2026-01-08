@@ -169,10 +169,19 @@ class OptimizedBrowserHistoryScanner:
             conn.close()
 
     def _chrome_timestamp_to_datetime(self, chrome_timestamp: int) -> datetime:
-        """Convert Chrome timestamp to Python datetime."""
+        """Convert Chrome timestamp to Python datetime in local timezone (KST).
+
+        Chrome stores timestamps in UTC, but we need to display them in local time.
+        """
         # Chrome timestamp is in microseconds
         seconds_since_chrome_epoch = chrome_timestamp / 1_000_000
-        return self.CHROME_EPOCH + timedelta(seconds=seconds_since_chrome_epoch)
+        utc_time = self.CHROME_EPOCH + timedelta(seconds=seconds_since_chrome_epoch)
+
+        # Convert UTC to local time (KST is UTC+9)
+        # Since we're in Korea, add 9 hours to convert from UTC to KST
+        local_time = utc_time + timedelta(hours=9)
+
+        return local_time
 
     def _datetime_to_chrome_timestamp(self, dt: datetime) -> int:
         """Convert Python datetime to Chrome timestamp."""
