@@ -20,6 +20,7 @@ from utils.config import get_config
 from gui.link_list import LinkListView
 from gui.detail_panel import DetailPanel
 from gui.category_dialog import CategoryDialog
+from gui.trash_dialog import TrashDialog
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,8 @@ class MainWindow:
         edit_menu = Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Edit", menu=edit_menu)
         edit_menu.add_command(label="Categories...", command=self.show_category_dialog)
+        edit_menu.add_command(label="🗑️ Recycle Bin...", command=self.show_trash_dialog)
+        edit_menu.add_separator()
         edit_menu.add_command(label="Delete Selected", command=self.delete_selected, accelerator="Del")
         edit_menu.add_separator()
         edit_menu.add_command(label="Preferences...", command=self.show_preferences)
@@ -450,18 +453,19 @@ class MainWindow:
 
         # Confirm deletion
         count = len(selected_links)
-        msg = f"Delete {count} selected link{'s' if count > 1 else ''}?"
+        msg = f"Move {count} selected link{'s' if count > 1 else ''} to Recycle Bin?\n\n" \
+              f"You can restore them later from Edit → 🗑️ Recycle Bin"
         if not messagebox.askyesno("Confirm Delete", msg):
             return
 
-        # Delete links
+        # Delete links (soft delete by default)
         deleted = 0
         for link in selected_links:
             if self.db_manager.delete_link(link.id):
                 deleted += 1
 
         self.refresh_links()
-        self.set_status(f"Deleted {deleted} links")
+        self.set_status(f"Moved {deleted} link{'s' if deleted != 1 else ''} to Recycle Bin")
 
     def show_category_dialog(self):
         """Show category management dialog."""
@@ -471,6 +475,11 @@ class MainWindow:
         # Refresh after dialog closes
         self._update_category_filter()
         self.refresh_links()
+
+    def show_trash_dialog(self):
+        """Show trash/recycle bin dialog."""
+        dialog = TrashDialog(self.root, self.db_manager, on_restore=self.refresh_links)
+        self.root.wait_window(dialog.dialog)
 
     def show_preferences(self):
         """Show preferences dialog."""

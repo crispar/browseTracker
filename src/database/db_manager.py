@@ -52,6 +52,15 @@ class DatabaseManager:
         """Create database schema if it doesn't exist."""
         with self.get_connection() as conn:
             conn.executescript(SCHEMA_SQL)
+            # Add is_deleted column to existing databases (migration)
+            cursor = conn.cursor()
+            # Check if is_deleted column exists
+            cursor.execute("PRAGMA table_info(links)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if 'is_deleted' not in columns:
+                cursor.execute("ALTER TABLE links ADD COLUMN is_deleted BOOLEAN DEFAULT 0")
+                cursor.execute("ALTER TABLE links ADD COLUMN deleted_at TIMESTAMP")
+                logger.info("Added is_deleted column to existing database")
             conn.commit()
             logger.info(f"Database initialized at {self.db_path}")
 
@@ -86,7 +95,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Check if link exists
+            # Check if link exists (including deleted ones)
             cursor.execute("SELECT * FROM links WHERE url = ?", (url,))
             existing = cursor.fetchone()
 
@@ -95,6 +104,18 @@ class DatabaseManager:
             now = datetime.now().isoformat()
 
             if existing:
+                # Check if link was deleted
+                try:
+                    is_deleted = existing['is_deleted']
+                except (KeyError, IndexError):
+                    is_deleted = 0
+
+                # If link is deleted, don't update it - treat as if it doesn't exist
+                if is_deleted:
+                    logger.info(f"Skipping update for deleted link: {url}")
+                    # Return without updating (the link stays deleted)
+                    return Link.from_row(existing)
+
                 # Update existing link - only update last_accessed_at if new visit is more recent
                 existing_last_accessed = existing['last_accessed_at']
                 if not existing_last_accessed or visit_time > existing_last_accessed:
@@ -104,7 +125,7 @@ class DatabaseManager:
                             last_accessed_at = ?,
                             access_count = access_count + 1,
                             updated_at = ?
-                        WHERE url = ?
+                        WHERE url = ? AND (is_deleted = 0 OR is_deleted IS NULL)
                     """, (title, visit_time, now, url))
                 else:
                     # Just update access count if this is an older visit
@@ -113,8 +134,9 @@ class DatabaseManager:
                         SET title = COALESCE(?, title),
                             access_count = access_count + 1,
                             updated_at = ?
-                        WHERE url = ?
+                        WHERE url = ? AND (is_deleted = 0 OR is_deleted IS NULL)
                     """, (title, now, url))
+
                 link_id = existing['id']
             else:
                 # Insert new link
@@ -160,7 +182,8 @@ class DatabaseManager:
                   sort_by: str = 'last_accessed_at',
                   sort_desc: bool = True,
                   limit: Optional[int] = None,
-                  offset: int = 0) -> List[Link]:
+                  offset: int = 0,
+                  include_deleted: bool = False) -> List[Link]:
         """Get filtered and sorted links.
 
         Args:
@@ -207,6 +230,10 @@ class DatabaseManager:
                     "l.last_accessed_at >= datetime('now', '-' || ? || ' days')"
                 )
                 params.append(days_back)
+
+            # Filter out deleted links unless specifically requested
+            if not include_deleted:
+                where_clauses.append("(l.is_deleted = 0 OR l.is_deleted IS NULL)")
 
             # Build WHERE clause
             if where_clauses:
@@ -268,13 +295,59 @@ class DatabaseManager:
             conn.commit()
             return cursor.rowcount > 0
 
-    def delete_link(self, link_id: int) -> bool:
-        """Delete a link and all associated data."""
+    def delete_link(self, link_id: int, permanent: bool = False) -> bool:
+        """Soft delete a link (or permanently delete if specified).
+
+        Args:
+            link_id: The link ID to delete
+            permanent: If True, permanently delete. If False, soft delete.
+
+        Returns:
+            True if successful, False otherwise
+        """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM links WHERE id = ?", (link_id,))
+
+            if permanent:
+                # Permanent deletion
+                cursor.execute("DELETE FROM links WHERE id = ?", (link_id,))
+            else:
+                # Soft delete - just mark as deleted
+                cursor.execute("""
+                    UPDATE links
+                    SET is_deleted = 1,
+                        deleted_at = ?,
+                        updated_at = ?
+                    WHERE id = ? AND is_deleted = 0
+                """, (datetime.now().isoformat(), datetime.now().isoformat(), link_id))
+
             conn.commit()
             return cursor.rowcount > 0
+
+    def restore_link(self, link_id: int) -> bool:
+        """Restore a soft-deleted link.
+
+        Args:
+            link_id: The link ID to restore
+
+        Returns:
+            True if successful, False otherwise
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE links
+                SET is_deleted = 0,
+                    deleted_at = NULL,
+                    updated_at = ?
+                WHERE id = ? AND is_deleted = 1
+            """, (datetime.now().isoformat(), link_id))
+            conn.commit()
+
+            if cursor.rowcount > 0:
+                logger.info(f"Restored link with ID: {link_id}")
+                return True
+            return False
 
     def toggle_favorite(self, link_id: int) -> bool:
         """Toggle the favorite status of a link."""

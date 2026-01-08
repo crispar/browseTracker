@@ -27,7 +27,7 @@ class CategoryDialog:
         # Create dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Manage Categories")
-        self.dialog.geometry("500x400")
+        self.dialog.geometry("600x450")
         self.dialog.resizable(True, True)
 
         # Make modal
@@ -76,8 +76,8 @@ class CategoryDialog:
         # Category name
         ttk.Label(edit_frame, text="Name:").pack(anchor=tk.W, pady=(0, 5))
         self.name_var = tk.StringVar()
-        self.name_entry = ttk.Entry(edit_frame, textvariable=self.name_var, width=25)
-        self.name_entry.pack(pady=(0, 10))
+        self.name_entry = ttk.Entry(edit_frame, textvariable=self.name_var, width=30)
+        self.name_entry.pack(pady=(0, 10), fill=tk.X)
 
         # Color selection
         ttk.Label(edit_frame, text="Color:").pack(anchor=tk.W, pady=(0, 5))

@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS links (
     last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     access_count INTEGER DEFAULT 1,
     notes TEXT,
-    is_favorite BOOLEAN DEFAULT 0
+    is_favorite BOOLEAN DEFAULT 0,
+    is_deleted BOOLEAN DEFAULT 0,
+    deleted_at TIMESTAMP
 );
 
 -- Categories table: Hierarchical organization
@@ -106,7 +108,9 @@ class Link:
                  last_accessed_at: Optional[datetime] = None,
                  access_count: int = 1,
                  notes: Optional[str] = None,
-                 is_favorite: bool = False):
+                 is_favorite: bool = False,
+                 is_deleted: bool = False,
+                 deleted_at: Optional[datetime] = None):
         self.id = id
         self.url = url
         self.normalized_url = normalized_url
@@ -118,6 +122,8 @@ class Link:
         self.access_count = access_count
         self.notes = notes
         self.is_favorite = is_favorite
+        self.is_deleted = is_deleted
+        self.deleted_at = deleted_at
         self.categories: List[Category] = []
         self.tags: List[Tag] = []
 
@@ -142,6 +148,17 @@ class Link:
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> 'Link':
         """Create Link instance from database row."""
+        # Handle is_deleted column that may not exist in older databases
+        try:
+            is_deleted = bool(row['is_deleted'])
+        except (KeyError, IndexError):
+            is_deleted = False
+
+        try:
+            deleted_at = datetime.fromisoformat(row['deleted_at']) if row['deleted_at'] else None
+        except (KeyError, IndexError):
+            deleted_at = None
+
         return cls(
             id=row['id'],
             url=row['url'],
@@ -153,7 +170,9 @@ class Link:
             last_accessed_at=datetime.fromisoformat(row['last_accessed_at']) if row['last_accessed_at'] else None,
             access_count=row['access_count'],
             notes=row['notes'],
-            is_favorite=bool(row['is_favorite'])
+            is_favorite=bool(row['is_favorite']),
+            is_deleted=is_deleted,
+            deleted_at=deleted_at
         )
 
 
