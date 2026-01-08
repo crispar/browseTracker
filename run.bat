@@ -1,0 +1,3 @@
+@echo off
+echo Starting Browser Link Tracker...
+start "" "dist\LinkTracker.exe"

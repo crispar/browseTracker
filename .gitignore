@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+.env
+
+# Development databases
+data/
+*.db
+
+# Logs
+logs/
+*.log
+
+# Build directories
+build/
+dist/
+*.spec
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test files
+test_*.py
+*_test.py
+check_*.py
+debug_*.py
+
+# Temporary files
+*.tmp
+*.bak
+*.backup

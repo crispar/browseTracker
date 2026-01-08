@@ -1,0 +1,5 @@
+# Core dependencies (all standard library, no external packages needed)
+# Python 3.10+ required
+
+# For building executable
+pyinstaller>=6.0.0

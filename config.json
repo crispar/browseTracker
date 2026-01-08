@@ -1,0 +1,36 @@
+{
+  "scan_interval": 300,
+  "auto_scan": true,
+  "theme": "default",
+  "window_geometry": "1200x700+373+715",
+  "show_favicon": true,
+  "max_title_length": 80,
+  "date_format": "%Y-%m-%d %H:%M",
+  "browsers": {
+    "Chrome": true,
+    "Edge": true,
+    "Brave": true,
+    "Opera": false,
+    "Vivaldi": false
+  },
+  "columns_visible": {
+    "title": true,
+    "url": true,
+    "categories": true,
+    "tags": true,
+    "last_accessed": true,
+    "access_count": true,
+    "browser": false,
+    "favorite": true
+  },
+  "column_widths": {
+    "title": 300,
+    "url": 300,
+    "categories": 150,
+    "tags": 150,
+    "last_accessed": 150,
+    "access_count": 80,
+    "browser": 100,
+    "favorite": 50
+  }
+}

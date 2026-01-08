@@ -1,0 +1,40 @@
+browserTracker/
+│
+├── .venv/                    # Virtual environment
+├── requirements.txt          # Python dependencies
+├── README.md                 # Project documentation
+│
+├── src/                      # Source code
+│   ├── __init__.py
+│   ├── main.py              # Application entry point
+│   │
+│   ├── database/            # Database layer
+│   │   ├── __init__.py
+│   │   ├── models.py        # SQLite table definitions
+│   │   └── db_manager.py    # Database operations
+│   │
+│   ├── tracker/             # Browser tracking module
+│   │   ├── __init__.py
+│   │   ├── browser_history.py  # History scanner
+│   │   └── browser_paths.py    # Browser DB path utilities
+│   │
+│   ├── gui/                 # GUI components
+│   │   ├── __init__.py
+│   │   ├── main_window.py   # Main application window
+│   │   ├── link_list.py     # Link list view
+│   │   ├── detail_panel.py  # Detail/edit panel
+│   │   └── category_dialog.py  # Category management
+│   │
+│   └── utils/               # Utilities
+│       ├── __init__.py
+│       ├── url_utils.py     # URL normalization
+│       └── config.py        # App configuration
+│
+├── assets/                  # Icons, images
+│   └── icon.ico
+│
+├── data/                    # Local database storage (development)
+│   └── links.db
+│
+└── build/                   # Build scripts and configs
+    └── build.spec           # PyInstaller spec file
