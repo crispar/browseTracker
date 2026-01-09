@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS browser_sources (
     UNIQUE(browser_name, profile_name)
 );
 
+-- URL Filters table: Patterns to exclude from tracking
+CREATE TABLE IF NOT EXISTS url_filters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern TEXT NOT NULL UNIQUE,
+    filter_type TEXT NOT NULL DEFAULT 'domain',  -- 'domain', 'prefix', 'contains', 'regex'
+    description TEXT,
+    is_active BOOLEAN DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_links_url ON links(url);
 CREATE INDEX IF NOT EXISTS idx_links_normalized_url ON links(normalized_url);
@@ -94,6 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_links_deleted_at ON links(deleted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_links_composite_deleted ON links(is_deleted, deleted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_link_id ON visits(link_id);
 CREATE INDEX IF NOT EXISTS idx_visits_visited_at ON visits(visited_at DESC);
+CREATE INDEX IF NOT EXISTS idx_filters_active ON url_filters(is_active);
 """
 
 
@@ -205,6 +217,73 @@ class Category:
             sort_order=row['sort_order'],
             parent_id=row['parent_id']
         )
+
+
+class URLFilter:
+    """Represents a URL filter pattern to exclude from tracking."""
+
+    def __init__(self,
+                 id: Optional[int] = None,
+                 pattern: str = "",
+                 filter_type: str = "domain",
+                 description: Optional[str] = None,
+                 is_active: bool = True,
+                 created_at: Optional[datetime] = None,
+                 updated_at: Optional[datetime] = None):
+        self.id = id
+        self.pattern = pattern
+        self.filter_type = filter_type  # 'domain', 'prefix', 'contains', 'regex'
+        self.description = description
+        self.is_active = is_active
+        self.created_at = created_at or datetime.now()
+        self.updated_at = updated_at or datetime.now()
+
+    @staticmethod
+    def from_row(row: sqlite3.Row) -> 'URLFilter':
+        """Create URLFilter from database row."""
+        if not row:
+            return None
+        return URLFilter(
+            id=row['id'],
+            pattern=row['pattern'],
+            filter_type=row['filter_type'],
+            description=row['description'],
+            is_active=bool(row['is_active']),
+            created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+            updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
+        )
+
+    def matches(self, url: str) -> bool:
+        """Check if the URL matches this filter pattern."""
+        import re
+        from urllib.parse import urlparse
+
+        if not self.is_active:
+            return False
+
+        if self.filter_type == 'domain':
+            # Match exact domain or subdomain
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            pattern_lower = self.pattern.lower()
+            return domain == pattern_lower or domain.endswith('.' + pattern_lower)
+
+        elif self.filter_type == 'prefix':
+            # Match URL prefix
+            return url.lower().startswith(self.pattern.lower())
+
+        elif self.filter_type == 'contains':
+            # Match if pattern appears anywhere in URL
+            return self.pattern.lower() in url.lower()
+
+        elif self.filter_type == 'regex':
+            # Match with regular expression
+            try:
+                return bool(re.match(self.pattern, url, re.IGNORECASE))
+            except re.error:
+                return False
+
+        return False
 
 
 class Tag:

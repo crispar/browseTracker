@@ -17,7 +17,8 @@ from .models import (
     Category,
     Tag,
     Visit,
-    BrowserSource
+    BrowserSource,
+    URLFilter
 )
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,18 @@ class DatabaseManager:
                 )
                 """)
 
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS url_filters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern TEXT NOT NULL UNIQUE,
+                    filter_type TEXT NOT NULL DEFAULT 'domain',
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """)
+
                 logger.info("Database migration completed")
             else:
                 # No existing table, create everything fresh
@@ -149,6 +162,7 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_links_composite_deleted ON links(is_deleted, deleted_at DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_visits_link_id ON visits(link_id)",
                 "CREATE INDEX IF NOT EXISTS idx_visits_visited_at ON visits(visited_at DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_filters_active ON url_filters(is_active)",
             ]
 
             for idx_sql in indexes:
@@ -1007,6 +1021,141 @@ class DatabaseManager:
                 conn.commit()
 
         return stats
+
+    # ============ URL Filter Operations ============
+
+    def create_filter(self, pattern: str, filter_type: str = 'domain',
+                     description: Optional[str] = None, is_active: bool = True) -> URLFilter:
+        """Create a new URL filter.
+
+        Args:
+            pattern: The pattern to match (e.g., 'sts.secosso.net')
+            filter_type: Type of filter ('domain', 'prefix', 'contains', 'regex')
+            description: Optional description of the filter
+            is_active: Whether the filter is active
+
+        Returns:
+            Created URLFilter object
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            now = datetime.now().isoformat()
+
+            cursor.execute("""
+                INSERT INTO url_filters (pattern, filter_type, description, is_active,
+                                       created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (pattern, filter_type, description, is_active, now, now))
+
+            conn.commit()
+            filter_id = cursor.lastrowid
+
+            # Fetch and return the created filter
+            cursor.execute("SELECT * FROM url_filters WHERE id = ?", (filter_id,))
+            return URLFilter.from_row(cursor.fetchone())
+
+    def get_filters(self, active_only: bool = True) -> List[URLFilter]:
+        """Get all URL filters.
+
+        Args:
+            active_only: If True, only return active filters
+
+        Returns:
+            List of URLFilter objects
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if active_only:
+                cursor.execute("SELECT * FROM url_filters WHERE is_active = 1 ORDER BY pattern")
+            else:
+                cursor.execute("SELECT * FROM url_filters ORDER BY pattern")
+
+            return [URLFilter.from_row(row) for row in cursor.fetchall()]
+
+    def update_filter(self, filter_id: int, pattern: Optional[str] = None,
+                     filter_type: Optional[str] = None,
+                     description: Optional[str] = None,
+                     is_active: Optional[bool] = None) -> bool:
+        """Update a URL filter.
+
+        Args:
+            filter_id: ID of the filter to update
+            pattern: New pattern (if provided)
+            filter_type: New filter type (if provided)
+            description: New description (if provided)
+            is_active: New active status (if provided)
+
+        Returns:
+            True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build update query dynamically
+            updates = []
+            params = []
+
+            if pattern is not None:
+                updates.append("pattern = ?")
+                params.append(pattern)
+            if filter_type is not None:
+                updates.append("filter_type = ?")
+                params.append(filter_type)
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            if is_active is not None:
+                updates.append("is_active = ?")
+                params.append(is_active)
+
+            if not updates:
+                return False
+
+            updates.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            params.append(filter_id)
+
+            query = f"UPDATE url_filters SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, params)
+            conn.commit()
+
+            return cursor.rowcount > 0
+
+    def delete_filter(self, filter_id: int) -> bool:
+        """Delete a URL filter.
+
+        Args:
+            filter_id: ID of the filter to delete
+
+        Returns:
+            True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM url_filters WHERE id = ?", (filter_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def should_track_url(self, url: str) -> bool:
+        """Check if a URL should be tracked (not filtered out).
+
+        Args:
+            url: The URL to check
+
+        Returns:
+            True if the URL should be tracked, False if it should be filtered out
+        """
+        # Get active filters
+        filters = self.get_filters(active_only=True)
+
+        # Check if URL matches any filter
+        for url_filter in filters:
+            if url_filter.matches(url):
+                logger.debug(f"URL {url} filtered by pattern: {url_filter.pattern}")
+                return False  # URL is filtered, don't track
+
+        return True  # URL is not filtered, track it
 
     def close(self):
         """Close database connection (if needed for cleanup)."""

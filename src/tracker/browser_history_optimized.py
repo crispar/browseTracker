@@ -311,7 +311,7 @@ class OptimizedHistoryTracker:
 
                     if history:
                         # Batch insert/update for better performance
-                        new_count, updated_count = self._batch_update_links(
+                        new_count, updated_count, filtered_count = self._batch_update_links(
                             history,
                             source.browser_name,
                             source.profile_name
@@ -324,6 +324,7 @@ class OptimizedHistoryTracker:
                         stats[profile_key] = {
                             'new': new_count,
                             'updated': updated_count,
+                            'filtered': filtered_count,
                             'total': len(history)
                         }
 
@@ -340,10 +341,11 @@ class OptimizedHistoryTracker:
         """Batch update links for better performance.
 
         Returns:
-            Tuple of (new_count, updated_count)
+            Tuple of (new_count, updated_count, filtered_count)
         """
         new_count = 0
         updated_count = 0
+        filtered_count = 0
 
         # Process in smaller batches to avoid memory issues
         batch_size = 50
@@ -351,6 +353,11 @@ class OptimizedHistoryTracker:
             batch = history_items[i:i + batch_size]
 
             for item in batch:
+                # Check if URL should be tracked (not filtered)
+                if not self.db_manager.should_track_url(item['url']):
+                    filtered_count += 1
+                    continue  # Skip filtered URLs
+
                 link = self.db_manager.upsert_link(
                     url=item['url'],
                     title=item['title'],
@@ -364,7 +371,7 @@ class OptimizedHistoryTracker:
                 else:
                     updated_count += 1
 
-        return new_count, updated_count
+        return new_count, updated_count, filtered_count
 
     def cleanup(self):
         """Clean up resources."""

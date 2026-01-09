@@ -127,6 +127,7 @@ class MainWindow:
         menubar.add_cascade(label="Edit", menu=edit_menu)
         edit_menu.add_command(label="Categories...", command=self.show_category_dialog)
         edit_menu.add_command(label="🗑️ Recycle Bin...", command=self.show_trash_dialog)
+        edit_menu.add_command(label="🚫 URL Filters...", command=self.show_filter_dialog)
         edit_menu.add_separator()
         edit_menu.add_command(label="Delete Selected", command=self.delete_selected, accelerator="Del")
         edit_menu.add_separator()
@@ -479,6 +480,12 @@ class MainWindow:
     def show_trash_dialog(self):
         """Show trash/recycle bin dialog."""
         dialog = TrashDialog(self.root, self.db_manager, on_restore=self.refresh_links)
+        self.root.wait_window(dialog.dialog)
+
+    def show_filter_dialog(self):
+        """Show URL filter management dialog."""
+        from gui.filter_dialog import FilterDialog
+        dialog = FilterDialog(self.root, self.db_manager, on_update=self.refresh_links)
         self.root.wait_window(dialog.dialog)
 
     def show_preferences(self):
