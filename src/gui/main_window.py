@@ -501,14 +501,85 @@ class MainWindow:
                 data = self.db_manager.export_to_dict()
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
+
+                # Show statistics
+                link_count = len(data.get('links', []))
+                category_count = len(data.get('categories', []))
+                tag_count = len(data.get('tags', []))
+
                 self.set_status(f"Exported to {filename}")
+                messagebox.showinfo("Export Successful",
+                    f"Successfully exported:\n"
+                    f"• {link_count} links\n"
+                    f"• {category_count} categories\n"
+                    f"• {tag_count} tags")
             except Exception as e:
                 messagebox.showerror("Export Error", str(e))
 
     def import_data(self):
         """Import data from file."""
-        # TODO: Implement import functionality
-        messagebox.showinfo("Import", "Import functionality not implemented yet")
+        from tkinter import filedialog
+        import json
+
+        filename = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if filename:
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # Validate data format
+                if 'version' not in data:
+                    raise ValueError("Invalid import file: missing version info")
+
+                # Show preview and ask for confirmation
+                link_count = len(data.get('links', []))
+                category_count = len(data.get('categories', []))
+                tag_count = len(data.get('tags', []))
+
+                msg = (f"This file contains:\n"
+                       f"• {link_count} links\n"
+                       f"• {category_count} categories\n"
+                       f"• {tag_count} tags\n\n"
+                       f"Duplicates will be automatically handled:\n"
+                       f"• Existing links will be updated (access count increased)\n"
+                       f"• Deleted links will remain deleted\n"
+                       f"• New links will be added\n\n"
+                       f"Do you want to continue?")
+
+                if not messagebox.askyesno("Import Data", msg):
+                    return
+
+                # Perform import
+                stats = self.db_manager.import_from_dict(data)
+
+                # Show results
+                result_msg = (f"Import completed successfully:\n\n"
+                             f"Links:\n"
+                             f"• {stats['links_new']} new links added\n"
+                             f"• {stats['links_updated']} existing links updated\n"
+                             f"• {stats['links_skipped']} deleted links skipped\n\n"
+                             f"Categories:\n"
+                             f"• {stats['categories_new']} new categories added\n"
+                             f"• {stats['categories_existing']} existing categories kept\n\n"
+                             f"Tags:\n"
+                             f"• {stats['tags_new']} new tags added\n"
+                             f"• {stats['tags_existing']} existing tags kept")
+
+                messagebox.showinfo("Import Successful", result_msg)
+
+                # Refresh the display
+                self.refresh_links()
+                self.set_status(f"Imported data from {filename}")
+
+            except FileNotFoundError:
+                messagebox.showerror("Import Error", "File not found")
+            except json.JSONDecodeError:
+                messagebox.showerror("Import Error", "Invalid JSON file")
+            except Exception as e:
+                messagebox.showerror("Import Error", str(e))
 
     def show_about(self):
         """Show about dialog."""

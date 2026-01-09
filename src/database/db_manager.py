@@ -831,7 +831,7 @@ class DatabaseManager:
 
     def export_to_dict(self) -> Dict[str, Any]:
         """Export all data to a dictionary."""
-        links = self.get_links(limit=None)
+        links = self.get_links(limit=None, include_deleted=False)  # Don't export deleted links
         categories = self.get_categories()
         tags = self.get_tags()
 
@@ -849,6 +849,164 @@ class DatabaseManager:
             ],
             'tags': [tag.name for tag in tags]
         }
+
+    def import_from_dict(self, data: Dict[str, Any]) -> Dict[str, int]:
+        """Import data from a dictionary.
+
+        Args:
+            data: Dictionary containing exported data
+
+        Returns:
+            Statistics about the import (new/updated/skipped counts)
+        """
+        stats = {
+            'links_new': 0,
+            'links_updated': 0,
+            'links_skipped': 0,
+            'categories_new': 0,
+            'categories_existing': 0,
+            'tags_new': 0,
+            'tags_existing': 0
+        }
+
+        # Import categories first
+        if 'categories' in data:
+            for cat_data in data['categories']:
+                try:
+                    self.create_category(
+                        name=cat_data['name'],
+                        color=cat_data.get('color', '#808080')
+                    )
+                    stats['categories_new'] += 1
+                except sqlite3.IntegrityError:
+                    # Category already exists
+                    stats['categories_existing'] += 1
+
+        # Import tags
+        if 'tags' in data:
+            for tag_name in data['tags']:
+                try:
+                    self.create_tag(tag_name)
+                    stats['tags_new'] += 1
+                except sqlite3.IntegrityError:
+                    # Tag already exists
+                    stats['tags_existing'] += 1
+
+        # Import links
+        if 'links' in data:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                for link_data in data['links']:
+                    url = link_data.get('url')
+                    if not url:
+                        continue
+
+                    # Check if link exists (including deleted ones)
+                    cursor.execute("SELECT * FROM links WHERE url = ?", (url,))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        # Check if the existing link is deleted
+                        try:
+                            is_deleted = existing['is_deleted']
+                        except (KeyError, IndexError):
+                            is_deleted = 0
+
+                        if is_deleted:
+                            # Skip deleted links - don't resurrect them
+                            stats['links_skipped'] += 1
+                            logger.info(f"Skipping import of deleted link: {url}")
+                            continue
+
+                        # Update existing link - merge data
+                        # Keep the higher access count
+                        new_count = link_data.get('access_count', 1)
+                        old_count = existing['access_count'] or 0
+                        merged_count = max(new_count, old_count) + 1  # Add 1 for the import action
+
+                        # Keep the most recent access time
+                        import_last_accessed = link_data.get('last_accessed_at')
+                        existing_last_accessed = existing['last_accessed_at']
+
+                        if import_last_accessed and existing_last_accessed:
+                            last_accessed = max(import_last_accessed, existing_last_accessed)
+                        else:
+                            last_accessed = import_last_accessed or existing_last_accessed
+
+                        cursor.execute("""
+                            UPDATE links
+                            SET title = COALESCE(?, title),
+                                notes = COALESCE(?, notes),
+                                is_favorite = COALESCE(?, is_favorite),
+                                access_count = ?,
+                                last_accessed_at = ?,
+                                updated_at = ?
+                            WHERE url = ?
+                        """, (
+                            link_data.get('title'),
+                            link_data.get('notes'),
+                            link_data.get('is_favorite'),
+                            merged_count,
+                            last_accessed,
+                            datetime.now().isoformat(),
+                            url
+                        ))
+                        stats['links_updated'] += 1
+                        link_id = existing['id']
+                    else:
+                        # Insert new link
+                        cursor.execute("""
+                            INSERT INTO links (url, title, notes, is_favorite,
+                                             created_at, updated_at, last_accessed_at,
+                                             access_count, normalized_url, favicon_url)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            url,
+                            link_data.get('title', url),
+                            link_data.get('notes'),
+                            link_data.get('is_favorite', False),
+                            link_data.get('created_at', datetime.now().isoformat()),
+                            datetime.now().isoformat(),
+                            link_data.get('last_accessed_at', datetime.now().isoformat()),
+                            link_data.get('access_count', 1),
+                            link_data.get('normalized_url'),
+                            link_data.get('favicon_url')
+                        ))
+                        stats['links_new'] += 1
+                        link_id = cursor.lastrowid
+
+                    # Import categories for this link
+                    if 'categories' in link_data and link_data['categories']:
+                        for cat_name in link_data['categories']:
+                            cursor.execute("SELECT id FROM categories WHERE name = ?", (cat_name,))
+                            cat = cursor.fetchone()
+                            if cat:
+                                try:
+                                    cursor.execute("""
+                                        INSERT INTO link_categories (link_id, category_id)
+                                        VALUES (?, ?)
+                                    """, (link_id, cat['id']))
+                                except sqlite3.IntegrityError:
+                                    pass  # Link-category association already exists
+
+                    # Import tags for this link
+                    if 'tags' in link_data and link_data['tags']:
+                        for tag_name in link_data['tags']:
+                            cursor.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+                            tag = cursor.fetchone()
+                            if tag:
+                                try:
+                                    cursor.execute("""
+                                        INSERT INTO link_tags (link_id, tag_id)
+                                        VALUES (?, ?)
+                                    """, (link_id, tag['id']))
+                                except sqlite3.IntegrityError:
+                                    pass  # Link-tag association already exists
+
+                conn.commit()
+
+        return stats
 
     def close(self):
         """Close database connection (if needed for cleanup)."""
