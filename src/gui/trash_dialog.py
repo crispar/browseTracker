@@ -45,6 +45,9 @@ class TrashDialog:
         y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
         self.dialog.geometry(f"+{x}+{y}")
 
+        # Bind ESC to close dialog
+        self.dialog.bind('<Escape>', lambda e: self.dialog.destroy())
+
     def _build_ui(self):
         """Build the UI components."""
         # Main container

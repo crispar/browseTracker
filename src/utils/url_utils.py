@@ -44,23 +44,60 @@ def normalize_url(url: str, remove_tracking: bool = True) -> str:
         if parsed.query and remove_tracking:
             # Common tracking parameters to remove
             tracking_params = {
+                # UTM and marketing parameters
                 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
-                'fbclid', 'gclid', 'gclsrc', 'dclid', 'msclkid',
-                '_ga', '_gid', '_gac', '_gl', '_x_tr_sl', '_x_tr_tl',
-                'ref', 'ref_', 'referer', 'referrer', 'source',
-                'mc_cid', 'mc_eid', 'mkt_tok'
+                'utm_id', 'utm_cid', 'utm_reader', 'utm_name', 'utm_brand',
+                # Ad platform click IDs
+                'fbclid', 'gclid', 'gclsrc', 'dclid', 'msclkid', 'twclid', 'li_fat_id',
+                'ttclid', 'igshid', 'epik', 'pp', 'si',
+                # Analytics
+                '_ga', '_gid', '_gac', '_gl', '_x_tr_sl', '_x_tr_tl', '_x_tr_hl',
+                'ga_source', 'ga_medium', 'ga_term', 'ga_content', 'ga_campaign',
+                # Referral tracking
+                'ref', 'ref_', 'referer', 'referrer', 'source', 'src',
+                # Email marketing
+                'mc_cid', 'mc_eid', 'mkt_tok', 'trk', 'trkEmail', 'trkInfo',
+                # Session and temporary IDs
+                'session', 'sessionid', 'sid', 'ssid', 'phpsessid', 'jsessionid',
+                'token', 'auth', 'authtoken', 'access_token',
+                '_t', '_ts', '_', 'timestamp', 'ts', 'time', 'nocache', 'cache',
+                'rand', 'random', 'rnd', 'cb', 'cachebuster',
+                # Social sharing
+                'share', 'shared', 'via', 'from', 'origin',
+                # Misc tracking
+                'cid', 'eid', 'pid', 'uid', 'aid', 'campaign_id',
+                'tracking', 'track', 'trk', 'affiliate', 'aff', 'partner',
+                'clickid', 'click_id', 'adid', 'ad_id',
+                # Korean sites common params
+                'srsltid', 'gs_lcp', 'sclient', 'ei', 'ved', 'uact', 'oq', 'bih', 'biw',
+                'rlz', 'sxsrf', 'sourceid', 'action', 'sca_esv',
             }
 
             # Parse and filter query parameters
             params = parse_qs(parsed.query, keep_blank_values=True)
-            filtered_params = {
-                key: value for key, value in params.items()
-                if key.lower() not in tracking_params
-            }
+            filtered_params = {}
+            
+            for key, value in params.items():
+                key_lower = key.lower()
+                # Skip if it's a known tracking parameter
+                if key_lower in tracking_params:
+                    continue
+                # Skip if it looks like a timestamp (numeric value > 1000000000)
+                if len(value) == 1 and value[0].isdigit():
+                    try:
+                        num_val = int(value[0])
+                        # Skip Unix timestamps (10+ digits) or millisecond timestamps (13+ digits)
+                        if num_val > 1000000000:
+                            continue
+                    except ValueError:
+                        pass
+                filtered_params[key] = value
 
             # Rebuild query string with sorted parameters for consistency
             if filtered_params:
-                query = urlencode(filtered_params, doseq=True)
+                # Sort parameters for consistent URL representation
+                sorted_params = sorted(filtered_params.items())
+                query = urlencode(sorted_params, doseq=True)
             else:
                 query = ''
         else:

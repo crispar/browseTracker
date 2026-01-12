@@ -46,6 +46,11 @@ class DatabaseManager:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Filter cache for performance
+        self._filter_cache = None
+        self._filter_cache_time = None
+        self._filter_cache_ttl = 60  # Cache TTL in seconds
+
         # Initialize database schema
         self._init_database()
 
@@ -380,13 +385,52 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute(query, params)
 
-            links = []
+            rows = cursor.fetchall()
+            links = [Link.from_row(row) for row in rows]
+            
+            if not links:
+                return links
+            
+            # Batch load categories and tags to avoid N+1 query problem
+            link_ids = [link.id for link in links]
+            
+            # Load all categories for these links in one query
+            placeholders = ','.join('?' * len(link_ids))
+            cursor.execute(f"""
+                SELECT lc.link_id, c.* FROM categories c
+                JOIN link_categories lc ON c.id = lc.category_id
+                WHERE lc.link_id IN ({placeholders})
+                ORDER BY c.name
+            """, link_ids)
+            
+            # Group categories by link_id
+            categories_by_link = {}
             for row in cursor.fetchall():
-                link = Link.from_row(row)
-                # Load categories and tags
-                link.categories = self.get_link_categories(link.id)
-                link.tags = self.get_link_tags(link.id)
-                links.append(link)
+                link_id = row['link_id']
+                if link_id not in categories_by_link:
+                    categories_by_link[link_id] = []
+                categories_by_link[link_id].append(Category.from_row(row))
+            
+            # Load all tags for these links in one query
+            cursor.execute(f"""
+                SELECT lt.link_id, t.* FROM tags t
+                JOIN link_tags lt ON t.id = lt.tag_id
+                WHERE lt.link_id IN ({placeholders})
+                ORDER BY t.name
+            """, link_ids)
+            
+            # Group tags by link_id
+            tags_by_link = {}
+            for row in cursor.fetchall():
+                link_id = row['link_id']
+                if link_id not in tags_by_link:
+                    tags_by_link[link_id] = []
+                tags_by_link[link_id].append(Tag.from_row(row))
+            
+            # Assign categories and tags to links
+            for link in links:
+                link.categories = categories_by_link.get(link.id, [])
+                link.tags = tags_by_link.get(link.id, [])
 
             return links
 
@@ -1089,36 +1133,49 @@ class DatabaseManager:
         Returns:
             True if successful
         """
+        # Whitelist of allowed column names to prevent SQL injection
+        ALLOWED_COLUMNS = {'pattern', 'filter_type', 'description', 'is_active', 'updated_at'}
+        
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Build update query dynamically
+            # Build update query with validated column names
             updates = []
             params = []
 
             if pattern is not None:
-                updates.append("pattern = ?")
+                updates.append('pattern')
                 params.append(pattern)
             if filter_type is not None:
-                updates.append("filter_type = ?")
+                updates.append('filter_type')
                 params.append(filter_type)
             if description is not None:
-                updates.append("description = ?")
+                updates.append('description')
                 params.append(description)
             if is_active is not None:
-                updates.append("is_active = ?")
+                updates.append('is_active')
                 params.append(is_active)
 
             if not updates:
                 return False
 
-            updates.append("updated_at = ?")
+            # Validate all column names against whitelist
+            for col in updates:
+                if col not in ALLOWED_COLUMNS:
+                    raise ValueError(f"Invalid column name: {col}")
+
+            updates.append('updated_at')
             params.append(datetime.now().isoformat())
             params.append(filter_id)
 
-            query = f"UPDATE url_filters SET {', '.join(updates)} WHERE id = ?"
+            # Build safe query with validated column names
+            set_clause = ', '.join(f"{col} = ?" for col in updates)
+            query = f"UPDATE url_filters SET {set_clause} WHERE id = ?"
             cursor.execute(query, params)
             conn.commit()
+
+            # Invalidate filter cache
+            self._filter_cache = None
 
             return cursor.rowcount > 0
 
@@ -1146,11 +1203,16 @@ class DatabaseManager:
         Returns:
             True if the URL should be tracked, False if it should be filtered out
         """
-        # Get active filters
-        filters = self.get_filters(active_only=True)
+        # Use cached filters for performance
+        now = datetime.now()
+        if (self._filter_cache is None or 
+            self._filter_cache_time is None or
+            (now - self._filter_cache_time).total_seconds() > self._filter_cache_ttl):
+            self._filter_cache = self.get_filters(active_only=True)
+            self._filter_cache_time = now
 
-        # Check if URL matches any filter
-        for url_filter in filters:
+        # Check if URL matches any cached filter
+        for url_filter in self._filter_cache:
             if url_filter.matches(url):
                 logger.debug(f"URL {url} filtered by pattern: {url_filter.pattern}")
                 return False  # URL is filtered, don't track

@@ -97,6 +97,7 @@ class DetailPanel(ttk.Frame):
             text_frame,
             height=6,
             wrap=tk.WORD,
+            font=('Segoe UI', 10),
             yscrollcommand=scrollbar.set
         )
         self.notes_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -343,8 +344,6 @@ class DetailPanel(ttk.Frame):
             # Notify callback
             if self.on_save:
                 self.on_save(self.current_link)
-
-            messagebox.showinfo("Success", "Changes saved successfully")
 
         except Exception as e:
             messagebox.showerror("Save Error", f"Failed to save changes: {e}")

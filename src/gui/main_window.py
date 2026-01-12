@@ -25,6 +25,37 @@ from gui.trash_dialog import TrashDialog
 logger = logging.getLogger(__name__)
 
 
+class Tooltip:
+    """Simple tooltip helper class."""
+    
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        widget.bind('<Enter>', self.show)
+        widget.bind('<Leave>', self.hide)
+    
+    def show(self, event=None):
+        if self.tooltip_window:
+            return
+        x, y, _, _ = self.widget.bbox("insert") if hasattr(self.widget, 'bbox') else (0, 0, 0, 0)
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        
+        label = tk.Label(tw, text=self.text, background="#ffffe0", 
+                        relief="solid", borderwidth=1, font=("Segoe UI", 9))
+        label.pack()
+    
+    def hide(self, event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
+
 class MainWindow:
     """Main application window."""
 
@@ -88,7 +119,9 @@ class MainWindow:
         self.link_list = LinkListView(
             left_frame,
             on_select=self.on_link_selected,
-            on_double_click=self.on_link_double_click
+            on_double_click=self.on_link_double_click,
+            on_toggle_favorite=self.on_toggle_favorite,
+            on_delete=self.on_delete_links
         )
         self.link_list.pack(fill=tk.BOTH, expand=True)
 
@@ -131,7 +164,7 @@ class MainWindow:
         edit_menu.add_separator()
         edit_menu.add_command(label="Delete Selected", command=self.delete_selected, accelerator="Del")
         edit_menu.add_separator()
-        edit_menu.add_command(label="Preferences...", command=self.show_preferences)
+        edit_menu.add_command(label="Preferences...", command=self.show_preferences, state='disabled')
 
         # View menu
         view_menu = Menu(menubar, tearoff=0)
@@ -152,6 +185,7 @@ class MainWindow:
         self.root.bind('<F5>', lambda e: self.scan_now())
         self.root.bind('<Delete>', lambda e: self.delete_selected())
         self.root.bind('<Control-r>', lambda e: self.refresh_links())
+        self.root.bind('<Control-f>', lambda e: self.focus_search())
 
     def _create_toolbar(self):
         """Create the toolbar."""
@@ -218,12 +252,14 @@ class MainWindow:
         ).pack(side=tk.LEFT)
 
         # Clear button
-        ttk.Button(
+        clear_btn = ttk.Button(
             toolbar,
             text="✖",
             command=self.clear_search,
             width=3
-        ).pack(side=tk.LEFT)
+        )
+        clear_btn.pack(side=tk.LEFT)
+        Tooltip(clear_btn, "Clear all filters (Ctrl+Shift+F)")
 
     def _create_status_bar(self):
         """Create the status bar."""
@@ -401,6 +437,31 @@ class MainWindow:
         self.refresh_links()
         self.set_status("Changes saved")
 
+    def on_toggle_favorite(self, link):
+        """Handle toggle favorite from context menu."""
+        if link:
+            new_status = not link.is_favorite
+            self.db_manager.update_link(link.id, is_favorite=new_status)
+            self.refresh_links()
+            status = "Added to" if new_status else "Removed from"
+            self.set_status(f"{status} favorites: {link.title}")
+
+    def on_delete_links(self, links):
+        """Handle delete from context menu."""
+        if not links:
+            return
+        
+        count = len(links)
+        msg = f"Move {count} link{'s' if count > 1 else ''} to Recycle Bin?"
+        if not messagebox.askyesno("Confirm Delete", msg):
+            return
+        
+        link_ids = [link.id for link in links]
+        deleted = self.db_manager.delete_links_batch(link_ids, permanent=False)
+        self.detail_panel.clear()
+        self.refresh_links()
+        self.set_status(f"Moved {deleted} link{'s' if deleted != 1 else ''} to Recycle Bin")
+
     def on_category_filter(self, event=None):
         """Handle category filter change."""
         selected = self.category_combo.get()
@@ -446,6 +507,11 @@ class MainWindow:
         self.time_filter_var.set("All")
         self.refresh_links()
 
+    def focus_search(self):
+        """Focus on search entry (Ctrl+F shortcut)."""
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, tk.END)
+
     def delete_selected(self):
         """Delete selected links using batch operation for performance."""
         selected_links = self.link_list.get_selected_links()
@@ -464,6 +530,9 @@ class MainWindow:
 
         # Batch delete for much better performance
         deleted = self.db_manager.delete_links_batch(link_ids, permanent=False)
+
+        # Clear detail panel
+        self.detail_panel.clear()
 
         self.refresh_links()
         self.set_status(f"Moved {deleted} link{'s' if deleted != 1 else ''} to Recycle Bin")

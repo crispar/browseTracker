@@ -7,7 +7,7 @@ import sqlite3
 import shutil
 import tempfile
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Set
 import logging
 from contextlib import contextmanager
@@ -18,22 +18,32 @@ from tracker.browser_paths import BrowserProfile, BrowserPathFinder
 
 logger = logging.getLogger(__name__)
 
+# Get local timezone offset
+def _get_local_tz_offset_hours() -> float:
+    """Get local timezone offset from UTC in hours."""
+    local_now = datetime.now()
+    utc_now = datetime.now(timezone.utc).replace(tzinfo=None)
+    offset = local_now - utc_now
+    return offset.total_seconds() / 3600
+
 
 class OptimizedBrowserHistoryScanner:
     """Optimized scanner with better performance."""
 
     # Chrome/Edge use Windows epoch (1601-01-01) for timestamps
     CHROME_EPOCH = datetime(1601, 1, 1)
-
-    # Cache for scanned URLs to avoid duplicates
-    _url_cache: Set[str] = set()
-    _cache_lock = threading.Lock()
+    
+    # Maximum cache size to prevent memory leak
+    MAX_CACHE_SIZE = 10000
 
     def __init__(self):
         """Initialize the history scanner."""
         self.profiles = []
         # Thread pool for parallel scanning
         self.executor = ThreadPoolExecutor(max_workers=4)
+        # Instance-level cache (not class-level) to prevent memory leak
+        self._url_cache: Set[str] = set()
+        self._cache_lock = threading.Lock()
 
     def discover_browsers(self) -> List[BrowserProfile]:
         """Discover all available browser profiles."""
@@ -139,6 +149,11 @@ class OptimizedBrowserHistoryScanner:
             # Convert to list of dictionaries with caching
             results = []
             with self._cache_lock:
+                # Clear cache if it's getting too large (prevents memory leak)
+                if len(self._url_cache) > self.MAX_CACHE_SIZE:
+                    self._url_cache.clear()
+                    logger.info("URL cache cleared due to size limit")
+                
                 for row in rows:
                     url = row['url']
 
@@ -169,17 +184,18 @@ class OptimizedBrowserHistoryScanner:
             conn.close()
 
     def _chrome_timestamp_to_datetime(self, chrome_timestamp: int) -> datetime:
-        """Convert Chrome timestamp to Python datetime in local timezone (KST).
+        """Convert Chrome timestamp to Python datetime in local timezone.
 
         Chrome stores timestamps in UTC, but we need to display them in local time.
+        Uses system timezone instead of hardcoded offset.
         """
         # Chrome timestamp is in microseconds
         seconds_since_chrome_epoch = chrome_timestamp / 1_000_000
         utc_time = self.CHROME_EPOCH + timedelta(seconds=seconds_since_chrome_epoch)
 
-        # Convert UTC to local time (KST is UTC+9)
-        # Since we're in Korea, add 9 hours to convert from UTC to KST
-        local_time = utc_time + timedelta(hours=9)
+        # Convert UTC to local time using system timezone
+        local_offset_hours = _get_local_tz_offset_hours()
+        local_time = utc_time + timedelta(hours=local_offset_hours)
 
         return local_time
 

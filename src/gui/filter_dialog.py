@@ -44,6 +44,9 @@ class FilterDialog:
         y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
         self.dialog.geometry(f"+{x}+{y}")
 
+        # Bind ESC to close dialog
+        self.dialog.bind('<Escape>', lambda e: self.dialog.destroy())
+
     def _create_widgets(self):
         """Create and layout dialog widgets."""
         # Main frame
@@ -339,6 +342,9 @@ class FilterEditDialog:
         x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
         y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
         self.dialog.geometry(f"+{x}+{y}")
+
+        # Bind ESC to close dialog
+        self.dialog.bind('<Escape>', lambda e: self.dialog.destroy())
 
         # Focus on pattern entry
         self.pattern_entry.focus()

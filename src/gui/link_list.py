@@ -15,21 +15,31 @@ class LinkListView(ttk.Frame):
     """Tree view for displaying links."""
 
     def __init__(self, parent, on_select: Optional[Callable] = None,
-                 on_double_click: Optional[Callable] = None):
+                 on_double_click: Optional[Callable] = None,
+                 on_toggle_favorite: Optional[Callable] = None,
+                 on_delete: Optional[Callable] = None):
         """Initialize the link list view.
 
         Args:
             parent: Parent widget
             on_select: Callback when a link is selected
             on_double_click: Callback when a link is double-clicked
+            on_toggle_favorite: Callback when toggling favorite status
+            on_delete: Callback when deleting links
         """
         super().__init__(parent)
 
         self.config = get_config()
         self.on_select = on_select
         self.on_double_click = on_double_click
+        self.on_toggle_favorite = on_toggle_favorite
+        self.on_delete = on_delete
         self.links = []
         self.link_map = {}  # Map tree items to Link objects
+        
+        # Sort state tracking
+        self.current_sort_column = None
+        self.sort_descending = True
 
         self._build_ui()
 
@@ -204,7 +214,7 @@ class LinkListView(ttk.Frame):
             title = title[:max_title_length - 3] + '...'
 
         return [
-            '♥' if link.is_favorite else '',  # Heart symbol for favorites
+            '❤' if link.is_favorite else '',  # Heart symbol for favorites
             title,  # Keep original title with Unicode/Korean
             url,    # Keep original URL
             categories,
@@ -262,13 +272,17 @@ class LinkListView(ttk.Frame):
 
     def _toggle_favorite(self):
         """Toggle favorite status of selected links."""
-        # This should be implemented with database callback
-        pass
+        if self.on_toggle_favorite:
+            selected = self.get_selected_links()
+            for link in selected:
+                self.on_toggle_favorite(link)
 
     def _delete_selected(self):
         """Delete selected links."""
-        # This should be implemented with database callback
-        pass
+        if self.on_delete:
+            selected = self.get_selected_links()
+            if selected:
+                self.on_delete(selected)
 
     def _sort_by_column(self, column: str):
         """Sort tree by column.
@@ -276,6 +290,13 @@ class LinkListView(ttk.Frame):
         Args:
             column: Column identifier to sort by
         """
+        # Toggle sort direction if clicking same column
+        if self.current_sort_column == column:
+            self.sort_descending = not self.sort_descending
+        else:
+            self.current_sort_column = column
+            self.sort_descending = True
+
         # Get current data
         data = []
         for child in self.tree.get_children():
@@ -301,16 +322,19 @@ class LinkListView(ttk.Frame):
             # Special handling for different column types
             if column == 'access_count':
                 # Sort numerically
-                data.sort(key=lambda x: int(x[1][idx]) if x[1][idx] else 0, reverse=True)
+                data.sort(key=lambda x: int(x[1][idx]) if x[1][idx] else 0, reverse=self.sort_descending)
             elif column == 'last_accessed':
                 # Sort by actual datetime
-                data.sort(key=lambda x: x[2].last_accessed_at if x[2] else datetime.min, reverse=True)
+                data.sort(key=lambda x: x[2].last_accessed_at if x[2] else datetime.min, reverse=self.sort_descending)
             elif column == 'favorite':
                 # Sort by boolean
-                data.sort(key=lambda x: x[2].is_favorite if x[2] else False, reverse=True)
+                data.sort(key=lambda x: x[2].is_favorite if x[2] else False, reverse=self.sort_descending)
             else:
                 # Sort alphabetically
-                data.sort(key=lambda x: x[1][idx].lower() if x[1][idx] else '')
+                data.sort(key=lambda x: x[1][idx].lower() if x[1][idx] else '', reverse=self.sort_descending)
+
+        # Update column heading to show sort direction
+        self._update_sort_indicators(column)
 
         # Reorder items
         for i, (child, values, link) in enumerate(data):
@@ -320,3 +344,23 @@ class LinkListView(ttk.Frame):
             if link and link.is_favorite:
                 tags = tags + ('favorite',)
             self.tree.item(child, tags=tags)
+
+    def _update_sort_indicators(self, sorted_column: str):
+        """Update column headings to show sort direction."""
+        column_defs = {
+            'favorite': '❤',
+            'title': 'Title',
+            'url': 'URL',
+            'categories': 'Categories',
+            'tags': 'Tags',
+            'last_accessed': 'Last Accessed',
+            'access_count': 'Count',
+            'browser': 'Browser'
+        }
+
+        for col_id, col_name in column_defs.items():
+            if col_id == sorted_column:
+                indicator = ' ▼' if self.sort_descending else ' ▲'
+                self.tree.heading(col_id, text=col_name + indicator)
+            else:
+                self.tree.heading(col_id, text=col_name)
