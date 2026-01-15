@@ -6,6 +6,7 @@ import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
+import winreg  # For Windows registry access
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,27 @@ class BrowserManager:
             'windows_paths': [
                 r'C:\Program Files\Google\Chrome\Application\chrome.exe',
                 r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+                r'C:\Program Files\Google\Chrome Dev\Application\chrome.exe',  # Chrome Dev
                 os.path.expandvars(r'%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe'),
+            ],
+            'registry_keys': [
+                r'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe',
             ],
             'mac_paths': ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'],
             'linux_commands': ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium'],
+        },
+        'comet': {
+            'names': ['Comet Browser', 'Comet'],
+            'windows_paths': [
+                os.path.expandvars(r'%LOCALAPPDATA%\Perplexity\Comet\Application\comet.exe'),
+                os.path.expandvars(r'%LOCALAPPDATA%\CometNetwork\CometBrowser\Application\comet.exe'),
+                os.path.expandvars(r'%APPDATA%\Comet\Application\comet.exe'),
+            ],
+            'registry_keys': [
+                r'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\comet.exe',
+            ],
+            'mac_paths': [],
+            'linux_commands': [],
         },
         'edge': {
             'names': ['Microsoft Edge', 'Edge'],
@@ -113,10 +131,17 @@ class BrowserManager:
             Path to browser executable or None
         """
         if system == 'nt':  # Windows
+            # First, try direct file paths
             for path_template in config.get('windows_paths', []):
                 path = os.path.expandvars(path_template)
                 if os.path.isfile(path):
                     return path
+
+            # Second, try registry lookup
+            for registry_key in config.get('registry_keys', []):
+                exe_path = self._get_browser_from_registry(registry_key)
+                if exe_path and os.path.isfile(exe_path):
+                    return exe_path
         elif system == 'posix':
             # Try Mac paths
             for path in config.get('mac_paths', []):
@@ -126,6 +151,33 @@ class BrowserManager:
             for command in config.get('linux_commands', []):
                 if self._command_exists(command):
                     return command
+
+        return None
+
+    def _get_browser_from_registry(self, key_path: str) -> Optional[str]:
+        """Get browser path from Windows registry.
+
+        Args:
+            key_path: Registry key path relative to HKEY_LOCAL_MACHINE and HKEY_CURRENT_USER
+
+        Returns:
+            Path to browser executable or None
+        """
+        if os.name != 'nt':
+            return None
+
+        # Try both HKEY_LOCAL_MACHINE and HKEY_CURRENT_USER
+        root_keys = [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]
+
+        for root_key in root_keys:
+            try:
+                with winreg.OpenKey(root_key, key_path) as key:
+                    # Read the default value
+                    exe_path, _ = winreg.QueryValueEx(key, "")
+                    if exe_path and os.path.isfile(exe_path):
+                        return exe_path
+            except (FileNotFoundError, OSError):
+                continue
 
         return None
 
