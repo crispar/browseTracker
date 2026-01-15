@@ -8,7 +8,6 @@ import threading
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
-import webbrowser
 
 from database.db_manager import DatabaseManager
 # Use optimized version if available, fallback to regular
@@ -17,10 +16,13 @@ try:
 except ImportError:
     from tracker.browser_history import HistoryTracker
 from utils.config import get_config
+from utils.settings import SettingsManager
+from utils.browser_utils import BrowserManager
 from gui.link_list import LinkListView
 from gui.detail_panel import DetailPanel
 from gui.category_dialog import CategoryDialog
 from gui.trash_dialog import TrashDialog
+from gui.settings_dialog import SettingsDialog
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,10 @@ class MainWindow:
         # Load configuration
         self.config = get_config()
         self.root.geometry(self.config.get('window_geometry', '1200x700'))
+
+        # Initialize settings manager
+        self.settings_manager = SettingsManager()
+        self.browser_manager = BrowserManager()
 
         # Initialize database
         self.db_manager = DatabaseManager()
@@ -164,7 +170,7 @@ class MainWindow:
         edit_menu.add_separator()
         edit_menu.add_command(label="Delete Selected", command=self.delete_selected, accelerator="Del")
         edit_menu.add_separator()
-        edit_menu.add_command(label="Preferences...", command=self.show_preferences, state='disabled')
+        edit_menu.add_command(label="Preferences...", command=self.show_preferences)
 
         # View menu
         view_menu = Menu(menubar, tearoff=0)
@@ -429,8 +435,15 @@ class MainWindow:
     def on_link_double_click(self, link):
         """Handle link double-click (open in browser)."""
         if link:
-            webbrowser.open(link.url)
-            self.set_status(f"Opened: {link.title}")
+            # Get the selected browser from settings
+            browser_id = self.settings_manager.get('default_browser', 'system')
+
+            # Open URL with the selected browser
+            if self.browser_manager.open_url(link.url, browser_id):
+                self.set_status(f"Opened: {link.title}")
+            else:
+                messagebox.showerror("Error", f"Failed to open URL in browser")
+                self.set_status("Failed to open URL")
 
     def on_detail_save(self, link):
         """Handle detail panel save."""
@@ -559,8 +572,7 @@ class MainWindow:
 
     def show_preferences(self):
         """Show preferences dialog."""
-        # TODO: Implement preferences dialog
-        messagebox.showinfo("Preferences", "Preferences dialog not implemented yet")
+        SettingsDialog(self.root, self.settings_manager)
 
     def export_data(self):
         """Export data to file."""
