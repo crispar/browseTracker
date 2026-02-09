@@ -356,17 +356,18 @@ class DetailPanel(ttk.Frame):
             self.set_link(link)
 
     def _delete_link(self):
-        """Delete the current link."""
+        """Move the current link to Recycle Bin."""
         if not self.current_link:
             return
 
-        # Confirm deletion
-        if not messagebox.askyesno("Confirm Delete",
-                                   f"Delete this link?\n\n{self.current_link.title}"):
+        # Confirm deletion - consistent with main list delete
+        msg = f"Move this link to Recycle Bin?\n\n{self.current_link.title}\n\n" \
+              f"You can restore it later from Edit → 🗑️ Recycle Bin"
+        if not messagebox.askyesno("Confirm Delete", msg):
             return
 
         try:
-            # Delete from database
+            # Soft delete (move to Recycle Bin) - consistent with main list
             if self.db_manager.delete_link(self.current_link.id):
                 # Clear panel
                 self.clear()
@@ -374,13 +375,11 @@ class DetailPanel(ttk.Frame):
                 # Notify callback
                 if self.on_save:
                     self.on_save(None)
-
-                messagebox.showinfo("Success", "Link deleted successfully")
             else:
-                messagebox.showerror("Delete Error", "Failed to delete link")
+                messagebox.showerror("Delete Error", "Failed to move link to Recycle Bin")
 
         except Exception as e:
-            messagebox.showerror("Delete Error", f"Failed to delete link: {e}")
+            messagebox.showerror("Delete Error", f"Failed to move link to Recycle Bin: {e}")
 
     def _open_url(self):
         """Open the current URL in browser."""

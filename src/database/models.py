@@ -237,6 +237,9 @@ class URLFilter:
         self.is_active = is_active
         self.created_at = created_at or datetime.now()
         self.updated_at = updated_at or datetime.now()
+        # Cache for compiled regex (performance optimization)
+        self._compiled_regex = None
+        self._regex_valid = True  # Track if regex is valid
 
     @staticmethod
     def from_row(row: sqlite3.Row) -> 'URLFilter':
@@ -277,10 +280,20 @@ class URLFilter:
             return self.pattern.lower() in url.lower()
 
         elif self.filter_type == 'regex':
-            # Match with regular expression
+            # Match with regular expression (using compiled cache for performance)
+            if not self._regex_valid:
+                return False
+
+            if self._compiled_regex is None:
+                try:
+                    self._compiled_regex = re.compile(self.pattern, re.IGNORECASE)
+                except re.error:
+                    self._regex_valid = False
+                    return False
+
             try:
-                return bool(re.match(self.pattern, url, re.IGNORECASE))
-            except re.error:
+                return bool(self._compiled_regex.match(url))
+            except Exception:
                 return False
 
         return False

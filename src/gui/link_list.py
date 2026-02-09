@@ -173,6 +173,68 @@ class LinkListView(ttk.Frame):
             if hasattr(self, 'update'):
                 self.update()
 
+        # Restore sort order if there was a previous sort
+        if self.current_sort_column is not None:
+            self._apply_current_sort()
+
+    def _apply_current_sort(self):
+        """Apply current sort state without toggling direction.
+
+        This is used to restore sort order after data refresh.
+        """
+        if self.current_sort_column is None:
+            return
+
+        column = self.current_sort_column
+
+        # Get current data
+        data = []
+        for child in self.tree.get_children():
+            values = self.tree.item(child)['values']
+            link = self.link_map.get(child)
+            data.append((child, values, link))
+
+        # Determine sort key
+        col_index = {
+            'favorite': 0,
+            'title': 1,
+            'url': 2,
+            'categories': 3,
+            'tags': 4,
+            'last_accessed': 5,
+            'access_count': 6,
+            'browser': 7
+        }
+
+        if column in col_index:
+            idx = col_index[column]
+
+            # Special handling for different column types
+            if column == 'access_count':
+                # Sort numerically
+                data.sort(key=lambda x: int(x[1][idx]) if x[1][idx] else 0, reverse=self.sort_descending)
+            elif column == 'last_accessed':
+                # Sort by actual datetime
+                data.sort(key=lambda x: x[2].last_accessed_at if x[2] else datetime.min, reverse=self.sort_descending)
+            elif column == 'favorite':
+                # Sort by boolean
+                data.sort(key=lambda x: x[2].is_favorite if x[2] else False, reverse=self.sort_descending)
+            else:
+                # Sort alphabetically
+                data.sort(key=lambda x: x[1][idx].lower() if x[1][idx] else '', reverse=self.sort_descending)
+
+        # Update column heading to show sort direction
+        self._update_sort_indicators(column)
+
+        # Reorder items
+        for i, (child, values, link) in enumerate(data):
+            self.tree.move(child, '', i)
+            # Update row styling
+            tags = ('oddrow',) if i % 2 else ()
+            if link and link.is_favorite:
+                tags = tags + ('favorite',)
+            self.tree.item(child, tags=tags)
+
     def _get_link_values(self, link: Link) -> list:
         """Get display values for a link.
 

@@ -89,6 +89,10 @@ class MainWindow:
         self.scan_timer = None
         self.is_scanning = False
 
+        # Search debounce timer
+        self.search_debounce_timer = None
+        self.search_debounce_delay = 300  # milliseconds
+
         # Build UI
         self._build_ui()
 
@@ -503,12 +507,27 @@ class MainWindow:
         self.refresh_links()
 
     def on_search_key(self, event=None):
-        """Handle search key press (live search)."""
+        """Handle search key press (live search with debouncing)."""
+        # Cancel previous timer if exists
+        if self.search_debounce_timer:
+            self.root.after_cancel(self.search_debounce_timer)
+            self.search_debounce_timer = None
+
         # Only search if more than 2 characters or empty
         search_text = self.search_var.get().strip()
         if len(search_text) == 0 or len(search_text) > 2:
-            self.current_search = search_text
-            self.refresh_links()
+            # Schedule search after debounce delay
+            self.search_debounce_timer = self.root.after(
+                self.search_debounce_delay,
+                self._execute_search,
+                search_text
+            )
+
+    def _execute_search(self, search_text: str):
+        """Execute the actual search after debounce delay."""
+        self.search_debounce_timer = None
+        self.current_search = search_text
+        self.refresh_links()
 
     def clear_search(self):
         """Clear search and filters."""
