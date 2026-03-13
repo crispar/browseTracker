@@ -6,8 +6,12 @@ from tkinter import ttk
 
 
 _WINDOWS_FONT_CANDIDATES = (
-    "Malgun Gothic",
+    "NanumGothic",
+    "\ub098\ub214\uace0\ub515",
+    "Noto Sans KR",
     "Noto Sans CJK KR",
+    "Malgun Gothic",
+    "\ub9d1\uc740 \uace0\ub515",
     "Segoe UI",
     "Arial",
 )
