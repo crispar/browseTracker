@@ -6,8 +6,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, Menu
 import threading
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, List
+from datetime import datetime
+from typing import Optional
 
 from database.db_manager import DatabaseManager
 # Use optimized version if available, fallback to regular
@@ -23,6 +23,7 @@ from gui.detail_panel import DetailPanel
 from gui.category_dialog import CategoryDialog
 from gui.trash_dialog import TrashDialog
 from gui.settings_dialog import SettingsDialog
+from gui.ui_style import apply_global_typography
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class Tooltip:
         tw.wm_geometry(f"+{x}+{y}")
         
         label = tk.Label(tw, text=self.text, background="#ffffe0", 
-                        relief="solid", borderwidth=1, font=("Segoe UI", 9))
+                        relief="solid", borderwidth=1, font="TkTooltipFont")
         label.pack()
     
     def hide(self, event=None):
@@ -65,6 +66,8 @@ class MainWindow:
         """Initialize the main window."""
         self.root = tk.Tk()
         self.root.title("Browser Link Tracker")
+        self.root.minsize(980, 560)
+        self.ui_font_family = apply_global_typography(self.root)
 
         # Load configuration
         self.config = get_config()
@@ -118,12 +121,12 @@ class MainWindow:
         self._create_toolbar()
 
         # Create main content area with paned window
-        main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        self.main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Left side: Link list
-        left_frame = ttk.Frame(main_paned)
-        main_paned.add(left_frame, weight=3)
+        left_frame = ttk.Frame(self.main_paned)
+        self.main_paned.add(left_frame, weight=3)
 
         # Create link list view
         self.link_list = LinkListView(
@@ -136,8 +139,8 @@ class MainWindow:
         self.link_list.pack(fill=tk.BOTH, expand=True)
 
         # Right side: Detail panel
-        right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=1)
+        right_frame = ttk.Frame(self.main_paned)
+        self.main_paned.add(right_frame, weight=1)
 
         # Create detail panel
         self.detail_panel = DetailPanel(
@@ -149,6 +152,18 @@ class MainWindow:
 
         # Status bar
         self._create_status_bar()
+
+        # Keep left list dominant by default for better scanability.
+        self.root.after(0, self._set_initial_pane_split)
+
+    def _set_initial_pane_split(self):
+        """Set initial paned split to a list-first layout."""
+        try:
+            width = self.main_paned.winfo_width()
+            if width > 300:
+                self.main_paned.sashpos(0, int(width * 0.7))
+        except Exception:
+            logger.debug("Unable to set initial pane split", exc_info=True)
 
     def _create_menu(self):
         """Create the menu bar."""
@@ -196,6 +211,8 @@ class MainWindow:
         self.root.bind('<Delete>', lambda e: self.delete_selected())
         self.root.bind('<Control-r>', lambda e: self.refresh_links())
         self.root.bind('<Control-f>', lambda e: self.focus_search())
+        self.root.bind('<Control-Shift-F>', lambda e: self.clear_search())
+        self.root.bind('<Control-Shift-f>', lambda e: self.clear_search())
 
     def _create_toolbar(self):
         """Create the toolbar."""
@@ -431,10 +448,52 @@ class MainWindow:
             self.scan_now()
         self._schedule_scan()
 
+    def _confirm_unsaved_changes(self, context: str = "") -> bool:
+        """Ask user what to do with unsaved edits before a context switch."""
+        if not self.detail_panel.has_unsaved_changes():
+            return True
+
+        msg = "You have unsaved changes in the detail panel."
+        if context:
+            msg += f"\n\n{context}"
+        msg += (
+            "\n\nDo you want to save before continuing?"
+            "\n\nYes: Save changes"
+            "\nNo: Discard changes"
+            "\nCancel: Keep editing"
+        )
+
+        decision = messagebox.askyesnocancel("Unsaved Changes", msg)
+        if decision is None:
+            return False
+
+        if decision:
+            if self.detail_panel.save_current_changes():
+                self.set_status("Changes saved")
+                return True
+            return False
+
+        self.detail_panel.revert_current_changes()
+        self.set_status("Discarded unsaved changes")
+        return True
+
     def on_link_selected(self, link):
         """Handle link selection."""
-        if link:
-            self.detail_panel.set_link(link)
+        if not link:
+            return
+
+        current = self.detail_panel.current_link
+        current_id = current.id if current else None
+        if current_id == link.id:
+            return
+
+        if current_id is not None and not self._confirm_unsaved_changes(
+            "Switching links will replace your current edits."
+        ):
+            self.link_list.select_link_by_id(current_id)
+            return
+
+        self.detail_panel.set_link(link)
 
     def on_link_double_click(self, link):
         """Handle link double-click (open in browser)."""
@@ -538,6 +597,7 @@ class MainWindow:
         self.category_combo.set("All Categories")
         self.time_filter_var.set("All")
         self.refresh_links()
+        self.set_status("Cleared search and filters")
 
     def focus_search(self):
         """Focus on search entry (Ctrl+F shortcut)."""
@@ -706,6 +766,9 @@ browsing history across multiple browsers.
 
     def on_closing(self):
         """Handle window closing."""
+        if not self._confirm_unsaved_changes("Closing now will lose unsaved edits."):
+            return
+
         # Cancel scan timer
         if self.scan_timer:
             self.root.after_cancel(self.scan_timer)

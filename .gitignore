@@ -44,3 +44,6 @@ debug_*.py
 *.tmp
 *.bak
 *.backup
+# Keep committed test suite
+!tests/
+!tests/test_*.py

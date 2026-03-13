@@ -298,6 +298,16 @@ class LinkListView(ttk.Frame):
                 selected.append(self.link_map[item])
         return selected
 
+    def select_link_by_id(self, link_id: int) -> bool:
+        """Select and focus a link row by link ID."""
+        for item, link in self.link_map.items():
+            if link.id == link_id:
+                self.tree.selection_set(item)
+                self.tree.focus(item)
+                self.tree.see(item)
+                return True
+        return False
+
     def _on_select(self, event):
         """Handle selection change."""
         selected = self.get_selected_links()
